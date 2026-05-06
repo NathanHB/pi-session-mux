@@ -98,11 +98,11 @@ export default function sessionMux(pi: ExtensionAPI) {
 
 		const allItems: SelectItem[] = sessionData.map(({ session, extras }) => {
 			const isCurrent = session.path === currentSessionFile;
-			const label = session.name || extras.firstMessage.slice(0, 80) || "(empty session)";
+			const label = session.name || extras.firstMessage.slice(0, 120) || "(empty session)";
 			const prefix = isCurrent ? "● " : "  ";
 			const description = [
 				formatDate(session.modified),
-				session.cwd ? basename(session.cwd) : "",
+				session.cwd ? session.cwd.replace(/^\/Users\/\w+/, "~") : "",
 				extras.model,
 			].filter(Boolean).join(" · ");
 
@@ -120,7 +120,7 @@ export default function sessionMux(pi: ExtensionAPI) {
 			const searchLine = new Text("", 1, 0);
 			container.addChild(searchLine);
 
-			const selectList = new SelectList(allItems, Math.min(allItems.length, 15), {
+			const selectList = new SelectList(allItems, Math.min(allItems.length, 25), {
 				selectedPrefix: (t) => theme.fg("accent", t),
 				selectedText: (t) => theme.fg("accent", t),
 				description: (t) => theme.fg("muted", t),
@@ -213,7 +213,7 @@ export default function sessionMux(pi: ExtensionAPI) {
 					// Swallow everything else
 				},
 			};
-		}, { overlay: true });
+		}, { overlay: true, overlayOptions: { width: "80%", maxHeight: "90%" } });
 
 		if (result && result !== currentSessionFile) {
 			ctx.ui.notify("Switching session...", "info");
