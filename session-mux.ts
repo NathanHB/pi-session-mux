@@ -126,6 +126,11 @@ export default function sessionMux(pi: ExtensionAPI) {
 				description: (t) => theme.fg("muted", t),
 				scrollInfo: (t) => theme.fg("dim", t),
 				noMatch: (t) => theme.fg("warning", t),
+			}, {
+				// Let the label column take as much space as possible
+				// The description (date, cwd, model) stays on the right
+				minPrimaryColumnWidth: 40,
+				maxPrimaryColumnWidth: 999,
 			});
 
 			selectList.onSelect = (item) => done(item.value);
