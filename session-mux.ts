@@ -149,6 +149,10 @@ export default function sessionMux(pi: ExtensionAPI) {
 			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 			container.addChild(new Text(theme.fg("accent", theme.bold("📡 Session Multiplexer")), 1, 0));
 
+			// Search input line — updated on every keystroke
+			const searchLine = new Text("", 1, 0);
+			container.addChild(searchLine);
+
 			const selectList = new SelectList(buildItems(), Math.min(allSessions.length, 15), {
 				selectedPrefix: (t) => theme.fg("accent", t),
 				selectedText: (t) => theme.fg("accent", t),
@@ -166,6 +170,13 @@ export default function sessionMux(pi: ExtensionAPI) {
 			container.addChild(helpText);
 			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 
+			const updateSearchLine = () => {
+				const prompt = theme.fg("muted", "🔍 ");
+				const query = filter ? theme.fg("text", filter) : theme.fg("dim", "type to filter…");
+				const count = theme.fg("dim", ` ${selectList.filteredItems.length}/${allSessions.length}`);
+				searchLine.setText(prompt + query + count);
+			};
+
 			const refreshList = () => {
 				const items = buildItems();
 				selectList.setFilter(""); // reset internal filter
@@ -174,7 +185,10 @@ export default function sessionMux(pi: ExtensionAPI) {
 				selectList.filteredItems = items;
 				selectList.selectedIndex = Math.min(selectList.selectedIndex, Math.max(0, items.length - 1));
 				selectList.invalidate();
+				updateSearchLine();
 			};
+
+			updateSearchLine();
 
 			return {
 				render: (w: number) => container.render(w),
