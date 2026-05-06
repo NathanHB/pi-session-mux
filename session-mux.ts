@@ -59,6 +59,18 @@ function formatDate(d: Date): string {
 	return d.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+/** Simple fuzzy match: each char of query must appear in order in text */
+function fuzzyMatch(query: string, text: string): boolean {
+    if (!query) return true;
+    const q = query.toLowerCase();
+    const t = text.toLowerCase();
+    let qi = 0;
+    for (let ti = 0; ti < t.length && qi < q.length; ti++) {
+        if (t[ti] === q[qi]) qi++;
+    }
+    return qi === q.length;
+}
+
 export default function sessionMux(pi: ExtensionAPI) {
 	async function showSessionPicker(ctx: ExtensionCommandContext) {
 		const currentSessionFile = ctx.sessionManager.getSessionFile();
@@ -130,9 +142,16 @@ export default function sessionMux(pi: ExtensionAPI) {
 				searchLine.setText(prompt + query + count);
 			};
 
-			// Use SelectList's built-in setFilter for matching
 			const applyFilter = () => {
-				selectList.setFilter(filter);
+				const filtered = allItems.filter((item) => {
+					// Search against label + description + value (file path)
+					return fuzzyMatch(filter, item.label + " " + (item.description || ""));
+				});
+				// Rebuild the select list with filtered items
+				selectList.items = filtered;
+				selectList.filteredItems = filtered;
+				selectList.selectedIndex = Math.min(selectList.selectedIndex, Math.max(0, filtered.length - 1));
+				selectList.invalidate();
 				updateSearchLine();
 			};
 
