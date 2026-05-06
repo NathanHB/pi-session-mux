@@ -194,21 +194,46 @@ export default function sessionMux(pi: ExtensionAPI) {
 				render: (w: number) => container.render(w),
 				invalidate: () => container.invalidate(),
 				handleInput: (data: string) => {
+					// Debug: log raw input
+					console.error(`[session-mux] input: len=${data.length} chars=${[...data].map(c => c.charCodeAt(0).toString(16)).join(',')}`);
+
+					// Escape — close overlay directly
+					if (matchesKey(data, Key.escape)) {
+						done(null);
+						return;
+					}
+
+					// Enter — pass to SelectList for selection
+					if (matchesKey(data, Key.enter)) {
+						selectList.handleInput(data);
+						tui.requestRender();
+						return;
+					}
+
+					// Arrow keys — pass to SelectList for navigation
+					if (matchesKey(data, Key.up) || matchesKey(data, Key.down) || matchesKey(data, Key.pageUp) || matchesKey(data, Key.pageDown)) {
+						selectList.handleInput(data);
+						tui.requestRender();
+						return;
+					}
+
 					// Printable chars go to filter
-					if (data.length === 1 && data.charCodeAt(0) >= 32 && !matchesKey(data, Key.enter) && !matchesKey(data, Key.escape)) {
+					if (data.length === 1 && data.charCodeAt(0) >= 32) {
 						filter += data;
 						refreshList();
 						tui.requestRender();
 						return;
 					}
 
-					if (matchesKey(data, Key.backspace)) {
+					// Backspace: 0x7f (DEL) is most common, also check raw byte and matchesKey
+					if (data === '\x7f' || data === '\x08' || matchesKey(data, Key.backspace)) {
 						filter = filter.slice(0, -1);
 						refreshList();
 						tui.requestRender();
 						return;
 					}
 
+					// Ctrl+U: clear filter
 					if (matchesKey(data, Key.ctrl("u"))) {
 						filter = "";
 						refreshList();
@@ -216,9 +241,7 @@ export default function sessionMux(pi: ExtensionAPI) {
 						return;
 					}
 
-					// Everything else (arrows, enter, escape) goes to SelectList
-					selectList.handleInput(data);
-					tui.requestRender();
+					// Swallow all other keys — don't let them leak to the app
 				},
 			};
 		}, { overlay: true });
