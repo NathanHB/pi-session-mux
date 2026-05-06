@@ -9,7 +9,7 @@
  *
  * Features:
  *   - Lists all sessions across all projects
- *   - Fuzzy search to filter sessions
+ *   - Type to fuzzy-search sessions
  *   - Shows session name (or first user message), date, model, and CWD
  *   - Highlight current session
  *   - Enter to switch, Esc to cancel
@@ -23,17 +23,14 @@ import {
 	SelectList,
 	Text,
 	Key,
+	matchesKey,
+	visibleWidth,
+	truncateToWidth,
 } from "@mariozechner/pi-tui";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 
-/** Extra info we extract by reading the session file */
-interface ParsedExtras {
-	firstMessage: string;
-	model: string;
-}
-
-function parseSessionExtras(filePath: string): ParsedExtras {
+function parseSessionExtras(filePath: string): { firstMessage: string; model: string } {
 	let firstMessage = "";
 	let model = "";
 
@@ -63,7 +60,6 @@ function parseSessionExtras(filePath: string): ParsedExtras {
 				// skip malformed lines
 			}
 
-			// Stop early once we have both
 			if (firstMessage && model) break;
 		}
 	} catch {
@@ -80,6 +76,14 @@ function formatDate(d: Date): string {
 		hour: "2-digit",
 		minute: "2-digit",
 	});
+}
+
+function fuzzyMatch(query: string, text: string): boolean {
+	if (!query) return true;
+	const q = query.toLowerCase();
+	const t = text.toLowerCase();
+	// Simple contains match
+	return t.includes(q);
 }
 
 export default function sessionMux(pi: ExtensionAPI) {
@@ -102,31 +106,50 @@ export default function sessionMux(pi: ExtensionAPI) {
 			return;
 		}
 
-		const items: SelectItem[] = allSessions.map((s) => {
-			const isCurrent = s.path === currentSessionFile;
-			const extras = parseSessionExtras(s.path);
-			const label = s.name || extras.firstMessage.slice(0, 80) || "(empty session)";
-			const prefix = isCurrent ? "● " : "  ";
-			const description = [
-				formatDate(s.modified),
-				s.cwd ? basename(s.cwd) : "",
-				extras.model,
-			].filter(Boolean).join(" · ");
-
-			return {
-				value: s.path,
-				label: prefix + label,
-				description,
-			};
-		});
+		// Pre-parse extras for all sessions
+		const sessionData = allSessions.map((s) => ({
+			session: s,
+			extras: parseSessionExtras(s.path),
+		}));
 
 		const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
+			let filter = "";
+
+			const buildItems = (): SelectItem[] => {
+				return sessionData
+					.filter(({ session, extras }) => {
+						const searchable = [
+							session.name || "",
+							extras.firstMessage,
+							session.cwd ? basename(session.cwd) : "",
+							extras.model,
+						].join(" ");
+						return fuzzyMatch(filter, searchable);
+					})
+					.map(({ session, extras }) => {
+						const isCurrent = session.path === currentSessionFile;
+						const label = session.name || extras.firstMessage.slice(0, 80) || "(empty session)";
+						const prefix = isCurrent ? "● " : "  ";
+						const description = [
+							formatDate(session.modified),
+							session.cwd ? basename(session.cwd) : "",
+							extras.model,
+						].filter(Boolean).join(" · ");
+
+						return {
+							value: session.path,
+							label: prefix + label,
+							description,
+						};
+					});
+			};
+
 			const container = new Container();
 
 			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 			container.addChild(new Text(theme.fg("accent", theme.bold("📡 Session Multiplexer")), 1, 0));
 
-			const selectList = new SelectList(items, Math.min(items.length, 15), {
+			const selectList = new SelectList(buildItems(), Math.min(allSessions.length, 15), {
 				selectedPrefix: (t) => theme.fg("accent", t),
 				selectedText: (t) => theme.fg("accent", t),
 				description: (t) => theme.fg("muted", t),
@@ -138,13 +161,48 @@ export default function sessionMux(pi: ExtensionAPI) {
 			selectList.onCancel = () => done(null);
 
 			container.addChild(selectList);
-			container.addChild(new Text(theme.fg("dim", "↑↓ navigate • type to search • enter switch • esc cancel"), 1, 0));
+
+			const helpText = new Text(theme.fg("dim", "↑↓ navigate • type to search • enter switch • esc cancel"), 1, 0);
+			container.addChild(helpText);
 			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+
+			const refreshList = () => {
+				const items = buildItems();
+				selectList.setFilter(""); // reset internal filter
+				// Rebuild items by replacing them
+				selectList.items = items;
+				selectList.filteredItems = items;
+				selectList.selectedIndex = Math.min(selectList.selectedIndex, Math.max(0, items.length - 1));
+				selectList.invalidate();
+			};
 
 			return {
 				render: (w: number) => container.render(w),
 				invalidate: () => container.invalidate(),
 				handleInput: (data: string) => {
+					// Printable chars go to filter
+					if (data.length === 1 && data.charCodeAt(0) >= 32 && !matchesKey(data, Key.enter) && !matchesKey(data, Key.escape)) {
+						filter += data;
+						refreshList();
+						tui.requestRender();
+						return;
+					}
+
+					if (matchesKey(data, Key.backspace)) {
+						filter = filter.slice(0, -1);
+						refreshList();
+						tui.requestRender();
+						return;
+					}
+
+					if (matchesKey(data, Key.ctrl("u"))) {
+						filter = "";
+						refreshList();
+						tui.requestRender();
+						return;
+					}
+
+					// Everything else (arrows, enter, escape) goes to SelectList
 					selectList.handleInput(data);
 					tui.requestRender();
 				},
